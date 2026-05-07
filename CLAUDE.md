@@ -60,3 +60,59 @@ Set `META_APP_SECRET=stub` to run in test mode without real Meta credentials.
 - [ ] Vercel logs show zero signature verification failures
 - [ ] Supabase shows persisted conversations + messages
 - [ ] README has a public demo URL and a "swap LLM provider" section
+
+## Process discipline
+Adapted from [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/andrej-karpathy-skills). Binding for every task in this repo.
+
+### 1. Think before coding
+- Before touching `lib/meta/client.ts` or `lib/llm/client.ts`, state in chat: **interface shape**, **failure modes covered**, **what is NOT covered and why**. Reach alignment, then code.
+- When uncertain about a Meta field, status code, rate limit, or Supabase/Next API shape: **stop and invoke `context7`**. Do not fabricate identifiers from training data.
+- Surface confusion explicitly. "I'm not sure if `messaging_postbacks` requires X" beats silently guessing.
+
+### 2. Simplicity first
+*(extends the existing rule about not adding features beyond what the task requires)*
+- One consumer = no abstraction. Wait for the second.
+- No retry/backoff scaffolding until a failure mode is actually observed (hard rule #5 still applies once it is).
+- One Supabase client export; no repository pattern unless v2 demands it.
+- Reuse `lib/utils.ts` and existing shadcn primitives before authoring new ones.
+
+### 3. Surgical changes
+- Touch only what the task names. Don't reformat, rename, or "improve" adjacent code.
+- If you spot dead code, **report it in chat**; do not delete it.
+- No dependency bumps unless the task requires them.
+
+### 4. Goal-driven execution
+- Every non-trivial task starts by restating the success criterion as a single bullet — derived from the v1 `## Verification` checklist when applicable.
+- End each task by mapping what was done back to which checklist item it advanced (or by adding a missing item).
+
+## Mandatory skill invocations
+Each row is a binding **MUST**. If a skill genuinely doesn't apply to an edge case, state why in chat and proceed — never silently skip. When a trigger isn't on the table, run `find-skills` before assuming none exists.
+
+| When you are about to … | MUST invoke |
+| --- | --- |
+| Edit `app/api/webhooks/instagram/route.ts`, `lib/meta/*`, or any code that reads `META_APP_SECRET` | `context7` (before, for Meta API shape), `security-review` (after the change) |
+| Edit `lib/db/schema.sql`, write/optimize SQL, or touch RLS policies | `supabase-postgres-best-practices` |
+| Edit any file under `app/` (routes, layouts, pages, server components) | `next-best-practices` |
+| Author or edit a React component (`.tsx` in `app/admin/`, `components/`) | `vercel-react-best-practices`, `coding-standards` |
+| Add or modify shadcn UI | `shadcn` |
+| UI/UX work or visual review on the v2 admin portal | `frontend-design`, `web-design-guidelines` |
+| End-to-end test a UI flow locally | `webapp-testing` |
+| Build/refactor anything that calls the Anthropic SDK directly | `claude-api` (triggers if the LLM client is swapped to Anthropic) |
+| Any question about a third-party library/API/CLI (Meta, Supabase, Next, DeepSeek, Vercel) | `context7` first, before answering |
+| Before declaring a task "done" or opening a PR | `simplify`, `code-review`, `security-review` (in that order) |
+| Create a git commit | `git-commit` |
+
+## Production-grade quality gates
+Before declaring any code-touching task "done":
+
+- [ ] `pnpm typecheck` passes
+- [ ] `pnpm lint` passes
+- [ ] No `any` introduced
+- [ ] No PII in logs (handles, message bodies, names) — IDs and event types only
+- [ ] If the webhook was touched: stub-mode (`META_APP_SECRET=stub`) still runs end-to-end locally without Meta credentials
+- [ ] Any new env key used is also added to `.env.example` with a one-line comment
+- [ ] No new file created when an edit would have sufficed
+- [ ] Every "MUST invoke" skill from the table above was actually invoked **and its output addressed** — not run-and-ignored
+- [ ] Conventional commit message via `git-commit` skill
+
+These gates are intentionally narrow. Test-coverage thresholds, accessibility audits on the webhook server, and CI pipeline mandates are out of scope for v1 — adding them would violate Simplicity First.
