@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyMetaSignature } from "@/lib/meta/verify";
 import { sendDirectMessage } from "@/lib/meta/client";
 import { generateReply } from "@/lib/llm/client";
+import { getDbClient } from "@/lib/db/client";
 import type { InstagramMessaging, InstagramWebhookEvent } from "@/lib/meta/types";
 
 export const runtime = "nodejs";
@@ -19,20 +20,65 @@ async function handleInboundMessage(m: InstagramMessaging): Promise<void> {
   const message = m.message;
   if (!message || message.is_echo || !message.text) return;
 
-  if (isOptOut(message.text)) {
-    console.info("webhook.optout", { mid: message.mid, sender: m.sender.id });
+  const db = getDbClient();
+  const senderId = m.sender.id;
+  const recipientId = m.recipient.id;
+  const text = message.text;
+  const isOpt = isOptOut(text);
+
+  const { data: conv, error: convErr } = await db
+    .from("conversations")
+    .upsert(
+      { ig_sender_id: senderId, ig_recipient_id: recipientId },
+      { onConflict: "ig_sender_id,ig_recipient_id" },
+    )
+    .select("id, opted_out")
+    .single();
+  if (convErr || !conv) {
+    throw new Error(`db.conversations: ${convErr?.message ?? "no row"}`);
+  }
+
+  const inboundIns = await db.from("messages").upsert(
+    { conversation_id: conv.id, direction: "inbound", mid: message.mid, text },
+    { onConflict: "mid", ignoreDuplicates: true },
+  );
+  if (inboundIns.error) {
+    throw new Error(`db.messages.inbound: ${inboundIns.error.message}`);
+  }
+
+  if (isOpt && !conv.opted_out) {
+    await db.from("conversations").update({ opted_out: true }).eq("id", conv.id);
+  }
+  if (isOpt || conv.opted_out) {
+    console.info("webhook.optout", { mid: message.mid, sender: senderId });
     return;
   }
 
   const reply = await generateReply(
-    [{ role: "user", content: message.text }],
+    [{ role: "user", content: text }],
     SYSTEM_PROMPT,
   );
-  const sent = await sendDirectMessage(m.sender.id, reply);
+  const sent = await sendDirectMessage(senderId, reply);
+
+  const outboundIns = await db.from("messages").upsert(
+    {
+      conversation_id: conv.id,
+      direction: "outbound",
+      mid: sent.message_id,
+      text: reply,
+    },
+    { onConflict: "mid", ignoreDuplicates: true },
+  );
+  if (outboundIns.error) {
+    console.warn("db.messages.outbound_failed", {
+      code: outboundIns.error.message.slice(0, 100),
+    });
+  }
+
   console.info("webhook.replied", {
     inbound_mid: message.mid,
     outbound_mid: sent.message_id,
-    sender: m.sender.id,
+    sender: senderId,
   });
 }
 
