@@ -71,7 +71,7 @@ export default function PrivacyPage() {
 
         <h2 className="text-lg font-semibold">Contact</h2>
         <p>
-          dev@kaizenisoconsulting.com
+          christianjheggfer@gmail.com
         </p>
       </section>
     </main>

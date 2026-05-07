@@ -29,7 +29,7 @@ export default function DataDeletionPage() {
 
         <h2 className="text-lg font-semibold">Option 2 — Full deletion request</h2>
         <p>
-          Email <strong>dev@kaizenisoconsulting.com</strong> with the subject
+          Email <strong>christianjheggfer@gmail.com</strong> with the subject
           line <em>Data deletion request</em> and include the Instagram
           username from which you contacted the connected account. We will
           delete all stored conversation, message, and lead records linked to

@@ -55,7 +55,7 @@ export default function TermsPage() {
         </p>
 
         <h2 className="text-lg font-semibold">Contact</h2>
-        <p>dev@kaizenisoconsulting.com</p>
+        <p>christianjheggfer@gmail.com</p>
       </section>
     </main>
   );
