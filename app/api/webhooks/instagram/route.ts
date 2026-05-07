@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
         entry: entry.id,
         mid: m.message?.mid ?? null,
         postback: m.postback ? true : false,
+        keys: Object.keys(m as object),
       });
       try {
         await handleInboundMessage(m);
