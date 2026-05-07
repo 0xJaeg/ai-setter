@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyMetaSignature } from "@/lib/meta/verify";
-import { sendDirectMessage } from "@/lib/meta/client";
+import { sendDirectMessage, sendPrivateReplyToComment } from "@/lib/meta/client";
 import { generateReply } from "@/lib/llm/client";
 import { getDbClient } from "@/lib/db/client";
-import type { InstagramMessaging, InstagramWebhookEvent } from "@/lib/meta/types";
+import type {
+  InstagramChange,
+  InstagramMessaging,
+  InstagramWebhookEvent,
+} from "@/lib/meta/types";
 
 export const runtime = "nodejs";
 
@@ -14,6 +18,42 @@ const OPT_OUT_REGEX = /\b(STOP|STOPP|UNSUBSCRIBE|ABMELDEN|ABBESTELLEN)\b/i;
 
 function isOptOut(text: string): boolean {
   return OPT_OUT_REGEX.test(text);
+}
+
+async function handleCommentChange(
+  c: InstagramChange,
+  businessIgId: string,
+): Promise<void> {
+  if (c.field !== "comments") return;
+
+  const v = c.value as {
+    id?: string;
+    comment_id?: string;
+    text?: string;
+    from?: { id?: string };
+  };
+  const commentId = v.id ?? v.comment_id;
+  const text = v.text;
+  const fromId = v.from?.id;
+
+  if (!commentId || !text || !fromId) return;
+  if (fromId === businessIgId) return;
+
+  if (isOptOut(text)) {
+    console.info("webhook.comment.optout", { comment_id: commentId, from: fromId });
+    return;
+  }
+
+  const reply = await generateReply(
+    [{ role: "user", content: text }],
+    SYSTEM_PROMPT,
+  );
+  const sent = await sendPrivateReplyToComment(commentId, reply);
+  console.info("webhook.comment.replied", {
+    comment_id: commentId,
+    outbound_mid: sent.message_id,
+    from: fromId,
+  });
 }
 
 async function handleInboundMessage(m: InstagramMessaging): Promise<void> {
@@ -141,6 +181,15 @@ export async function POST(request: NextRequest) {
         entry: entry.id,
         field: c.field,
       });
+      try {
+        await handleCommentChange(c, entry.id);
+      } catch (err) {
+        console.error("webhook.comment.handle.failed", {
+          entry: entry.id,
+          field: c.field,
+          code: err instanceof Error ? err.message.slice(0, 100) : "unknown",
+        });
+      }
     }
   }
 
