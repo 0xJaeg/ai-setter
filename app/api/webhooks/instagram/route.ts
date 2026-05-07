@@ -1,8 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyMetaSignature } from "@/lib/meta/verify";
-import type { InstagramWebhookEvent } from "@/lib/meta/types";
+import { sendDirectMessage } from "@/lib/meta/client";
+import { generateReply } from "@/lib/llm/client";
+import type { InstagramMessaging, InstagramWebhookEvent } from "@/lib/meta/types";
 
 export const runtime = "nodejs";
+
+const SYSTEM_PROMPT =
+  "You are a friendly Instagram DM assistant for a small business. Keep replies under two sentences. Match the language of the incoming message.";
+
+const OPT_OUT_REGEX = /\b(STOP|STOPP|UNSUBSCRIBE|ABMELDEN|ABBESTELLEN)\b/i;
+
+function isOptOut(text: string): boolean {
+  return OPT_OUT_REGEX.test(text);
+}
+
+async function handleInboundMessage(m: InstagramMessaging): Promise<void> {
+  const message = m.message;
+  if (!message || message.is_echo || !message.text) return;
+
+  if (isOptOut(message.text)) {
+    console.info("webhook.optout", { mid: message.mid, sender: m.sender.id });
+    return;
+  }
+
+  const reply = await generateReply(
+    [{ role: "user", content: message.text }],
+    SYSTEM_PROMPT,
+  );
+  const sent = await sendDirectMessage(m.sender.id, reply);
+  console.info("webhook.replied", {
+    inbound_mid: message.mid,
+    outbound_mid: sent.message_id,
+    sender: m.sender.id,
+  });
+}
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -47,6 +79,15 @@ export async function POST(request: NextRequest) {
         mid: m.message?.mid ?? null,
         postback: m.postback ? true : false,
       });
+      try {
+        await handleInboundMessage(m);
+      } catch (err) {
+        console.error("webhook.handle.failed", {
+          entry: entry.id,
+          mid: m.message?.mid ?? null,
+          code: err instanceof Error ? err.message.slice(0, 100) : "unknown",
+        });
+      }
     }
     for (const c of entry.changes ?? []) {
       console.info("webhook.event", {
